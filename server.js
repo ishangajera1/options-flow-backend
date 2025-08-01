@@ -5,39 +5,43 @@ const fetch = require('node-fetch');
 const app = express();
 app.use(cors());
 
-const apiKey = process.env.API_KEY; // Alpha Vantage API key from Render
+const apiKey = process.env.API_KEY; // Finnhub API key
 
-async function getAlphaVantageData() {
-  const symbols = ["AAPL", "NVDA"];
+async function getFinnhubData() {
+  const symbols = ["AAPL", "NVDA"]; // You can change later
   const results = [];
 
   for (const symbol of symbols) {
-    const url = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=5min&apikey=${apiKey}`;
+    const url = `https://finnhub.io/api/v1/stock/options?symbol=${symbol}&token=${apiKey}`;
     const response = await fetch(url);
 
     if (!response.ok) {
-      throw new Error(`Alpha Vantage API failed for ${symbol}: ${response.statusText}`);
+      throw new Error(`Finnhub API failed for ${symbol}: ${response.statusText}`);
     }
 
     const data = await response.json();
 
-    if (!data["Time Series (5min)"]) {
-      throw new Error(`No data returned for ${symbol}: ${JSON.stringify(data)}`);
+    // If Finnhub returns nothing, skip this symbol
+    if (!data.data || data.data.length === 0) {
+      console.warn(`No data for ${symbol}`);
+      continue;
     }
 
-    const times = Object.keys(data["Time Series (5min)"]);
-    const latest = data["Time Series (5min)"][times[0]];
-    const open = parseFloat(latest["1. open"]);
-    const close = parseFloat(latest["4. close"]);
-    const sentiment = close > open ? "BULLISH" : "BEARISH";
+    // Nearest expiry
+    const nearestExpiry = data.data[0];
+    const calls = nearestExpiry.options.CALL || [];
+    const puts = nearestExpiry.options.PUT || [];
+
+    // Sentiment: compare real volumes
+    const callVolume = calls.reduce((sum, o) => sum + (o.volume || 0), 0);
+    const putVolume = puts.reduce((sum, o) => sum + (o.volume || 0), 0);
+    const sentiment = callVolume > putVolume ? "BULLISH" : "BEARISH";
 
     results.push({
       symbol,
       sentiment,
-      options: [
-        { strike: close.toFixed(2), type: "C", volume: Math.floor(Math.random() * 10000), oi: Math.floor(Math.random() * 5000) },
-        { strike: close.toFixed(2), type: "P", volume: Math.floor(Math.random() * 10000), oi: Math.floor(Math.random() * 5000) }
-      ]
+      calls: calls.slice(0, 5),
+      puts: puts.slice(0, 5)
     });
   }
 
@@ -46,10 +50,13 @@ async function getAlphaVantageData() {
 
 app.get('/api/options-flow', async (req, res) => {
   try {
-    const liveData = await getAlphaVantageData();
+    const liveData = await getFinnhubData();
+    if (liveData.length === 0) {
+      return res.status(404).json({ error: 'No data available' });
+    }
     res.json(liveData);
   } catch (err) {
-    console.error('Alpha Vantage error:', err.message);
+    console.error('Finnhub error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
