@@ -5,10 +5,9 @@ const fetch = require('node-fetch');
 const app = express();
 app.use(cors());
 
-const apiKey = process.env.API_KEY; // Alpha Vantage API key from Render env vars
+const apiKey = process.env.API_KEY; // Alpha Vantage API key from Render
 
 async function getAlphaVantageData() {
-  // Example: Get AAPL stock data (Alpha Vantage free endpoint)
   const symbols = ["AAPL", "NVDA"];
   const results = [];
 
@@ -22,8 +21,11 @@ async function getAlphaVantageData() {
 
     const data = await response.json();
 
-    // Example: simulate sentiment based on price movement
-    const times = Object.keys(data["Time Series (5min)"] || {});
+    if (!data["Time Series (5min)"]) {
+      throw new Error(`No data returned for ${symbol}: ${JSON.stringify(data)}`);
+    }
+
+    const times = Object.keys(data["Time Series (5min)"]);
     const latest = data["Time Series (5min)"][times[0]];
     const open = parseFloat(latest["1. open"]);
     const close = parseFloat(latest["4. close"]);
@@ -48,7 +50,7 @@ app.get('/api/options-flow', async (req, res) => {
     res.json(liveData);
   } catch (err) {
     console.error('Alpha Vantage error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch live data' });
+    res.status(500).json({ error: err.message });
   }
 });
 
